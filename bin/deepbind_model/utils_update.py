@@ -12,7 +12,6 @@ sum = [0, 5, 22, 87, 344, 1369, 5466, 21849, 87370, 349419]
 ENSEMBLE_NUMBER = 6
 
 class StructInput(object):
-    """The deepbind_CNN model input with structure"""
 
     def __init__(self, config, inf, validation=False, fold_id=1):
         self.folds = folds = config.folds
@@ -87,8 +86,8 @@ class ThermoNet(object):
         self._config = config
         eta_model = config['eta_model']
         lam_model = config['lam_model']
-        self.motif_len = config['filter_lengths'][0]  # Tunable Motif length
-        self.num_motifs = config['num_filters'][0]  # Number of tunable motifs
+        self.motif_len = config['filter_lengths'][0]
+        self.num_motifs = config['num_filters'][0]
         self.motif_len2 = config['filter_lengths'][1]
         self.num_motifs2 = config['num_filters'][0]
         self.embedding_size = config['embedding_size']
@@ -112,7 +111,6 @@ class ThermoNet(object):
         struct_input = tf.transpose(tf.reshape(struct_input, [-1, 41, 6, 9]), perm=[0, 2, 1, 3])
         x = tf.reshape(tf.concat([structure_result, struct_input], axis=3),
                        [-1, 6, 41, 9 + self.k_mer * self.embedding_size])
-        # x = tf.reshape(structure_result, [-1, 6, 41, self.k_mer * self.embedding_size])
         h_final_list = []
         self.train_op_list = []
         for i in range(ENSEMBLE_NUMBER):
@@ -338,7 +336,6 @@ def run_epoch_parallel(session, models, input_data, config, epoch, train=False, 
 
 
 def train_model_parallel(session, train_config, models, input_data,epochs, early_stop = False, savedir=None,saver=None, validation = False):
-    """Trains a list of models in parallel. Expects a list of inputs of equal length as models. Config file is u """
     num_models = len(models)
     cost_train = np.zeros([epochs, num_models])
     cost_test = np.zeros([epochs, num_models])
@@ -798,32 +795,33 @@ def load_data(protein_name):
 
 def generate_configs_CNN(num_calibrations, k_mer = 5):
     configs = []
-    for eta in [0.001, 0.0001]:
-        for lam in [0.001, 0.005, 0.0001]:
-            for embedding_size in [10, 18, 20, 26, 30]:
-                for filter_length in [16]:
-                    minib = 100
-                    test_interval = 10
-                    num_conv_layers = 2
-                    strides = np.random.choice([1], size=num_conv_layers)
-                    pool_windows = np.random.choice([1], size=num_conv_layers)
-                    final_pool = np.random.choice(['max', 'avg', 'max_avg'])
-                    batchnorm = np.random.choice([True, False])
-                    filter_lengths = [16 // (2 ** i) for i in range(num_conv_layers)]
-                    filter_lengths[0] = filter_length
-                    num_filters = [16 * (i + 1) for i in range(num_conv_layers)]
-                    init_scale = 0.00001
-                    temp_config = {'eta_model': eta, 'lam_model': lam, 'minib': minib,
-                                   'test_interval': test_interval, 'filter_lengths': filter_lengths, 'num_filters': num_filters,
-                                   'num_conv_layers': num_conv_layers, 'strides': strides,
-                                   'pool_windows': pool_windows,
-                                   'batchnorm': batchnorm,
-                                   'final_pool': final_pool,
-                                   'init_scale': init_scale,
-                                   "k_mer": k_mer,
-                                   "embedding_size": embedding_size}
+    for eta in [0.001, 0.0001, 0.00001]:
+        for lam in [0.001, 0.0001, 0.00001]:
+            for embedding_size in [10, 20, 30]:
+                for filter_length in [16, 64]:
+                    for k_mer in [2, 3, 4, 5]:
+                        minib = 100
+                        test_interval = 10
+                        num_conv_layers = 2
+                        strides = np.random.choice([1], size=num_conv_layers)
+                        pool_windows = np.random.choice([1], size=num_conv_layers)
+                        final_pool = np.random.choice(['max', 'avg', 'max_avg'])
+                        batchnorm = np.random.choice([True, False])
+                        filter_lengths = [16 // (2 ** i) for i in range(num_conv_layers)]
+                        filter_lengths[0] = filter_length
+                        num_filters = [16 * (i + 1) for i in range(num_conv_layers)]
+                        init_scale = 0.00001
+                        temp_config = {'eta_model': eta, 'lam_model': lam, 'minib': minib,
+                                       'test_interval': test_interval, 'filter_lengths': filter_lengths, 'num_filters': num_filters,
+                                       'num_conv_layers': num_conv_layers, 'strides': strides,
+                                       'pool_windows': pool_windows,
+                                       'batchnorm': batchnorm,
+                                       'final_pool': final_pool,
+                                       'init_scale': init_scale,
+                                       "k_mer": k_mer,
+                                       "embedding_size": embedding_size}
 
-                    configs.append(temp_config)
+                        configs.append(temp_config)
     return configs
 
 def generate_configs(num_calibrations, model_type, k_mer = 5):
