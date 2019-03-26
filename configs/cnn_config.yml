@@ -1,5 +1,5 @@
 num_final_runs: 1
-model_type: CNN_attention
+model_type: ThermoNet
 train_epochs: 20
 hp_epochs: 20
 minib: 100

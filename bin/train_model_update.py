@@ -30,10 +30,9 @@ def main(train_config):
         inputs = []
         input_config = utils.input_config('large')
         num_final_runs = train_config['num_final_runs']
-        train_config['train_epochs'] = 25#best_config['round']
+        train_config['train_epochs'] = best_config['round']
         print(best_config)
         with tf.Graph().as_default():
-            # for i, model_type in enumerate(model_testing_list):
             input_data = utils.model_input(input_config, inf, model_type, validation=False)
             for runs in range(num_final_runs):
                 with tf.variable_scope('model' + str(runs)):
@@ -51,24 +50,6 @@ def main(train_config):
                                                early_stop=True,
                                                savedir=os.path.join(traindir, target_protein + '_best_model.ckpt'),
                                                saver=sv.saver)
-                # (test_cost, test_pearson) = \
-                #     utils.train_model_parallel_rnacs(session, best_config,
-                #                                      models, inputs,
-                #                                      early_stop=False)
-                # for i, model_type in enumerate(model_testing_list):
-                # test_cost_filtered = np.zeros(test_cost[:, -1].shape)
-                # #TODO save entire ensemble except for models with NAN pearson correlation
-                # for count, num in enumerate(test_pearson[:, -1]):
-                #     if np.isnan(num):
-                #         test_cost_filtered[count] = np.inf
-                #     else:
-                #         test_cost_filtered[count] = test_cost[count, -1]
-                # best_model_idx = np.argmin(test_cost_filtered[i * num_final_runs:(i + 1) * num_final_runs])
-
-                # abs_best_model_idx = i * num_final_runs + best_model_idx
-                # best_model_vars = tf.contrib.framework.get_variables(scope='model' + str(abs_best_model_idx))
-                # saver = tf.train.Saver(best_model_vars)
-                # sv.saver.save(session, os.path.join(traindir, target_protein + '_best_model.ckpt'))
 
                 pearson = pearson_ensemble
                 cost = cost_ensemble
@@ -99,4 +80,3 @@ if __name__ == "__main__":
             print("Time left is" + str(elapsed_time * ((len(args.protein) / (i + 1))-1)))
     average_time = (time() - start_time) / len(args.protein)
     print("Finished process in %.4f seconds per protein" % (average_time))
-    utils.summarize(config)
