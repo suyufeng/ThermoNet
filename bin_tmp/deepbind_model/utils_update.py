@@ -3,34 +3,28 @@ from math import ceil as ceil
 
 import numpy as np
 import scipy.stats as stats
+import sklearn.metrics as metrics
 import tensorflow as tf
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import KFold
 import h5py
 k_mer = 3
-sum = [0, 5, 22, 87, 344, 1369, 5466, 21849, 87370, 349419]
+sum = [0, 4, 20, 84, 340, 1364]
 ENSEMBLE_NUMBER = 6
 
 class StructInput(object):
-
     def __init__(self, config, inf, validation=False, fold_id=1):
         self.folds = folds = config.folds
         (data_one_hot_training, labels_training,
          data_one_hot_test, labels_test,
          pre_train, pre_test,
-         difficult_test, simple_test,
          seq_length) = (inf["data_one_hot_training"][:, :, :], inf["labels_training"][:],
                         inf["data_one_hot_test"][:, :, :], inf["labels_test"][:],
                         inf["pred_train"][:], inf["pred_test"][:],
-                        inf["difficult_test"], inf["simple_test"],
                         inf["seq_length"][...])
-        labels_training = (labels_training - np.mean(labels_training)) / np.sqrt(np.var(labels_training))
-        labels_test = (labels_test - np.mean(labels_test)) / np.sqrt(np.var(labels_test))
-
         training_cases = data_one_hot_training.shape[0]
         test_cases = data_one_hot_test.shape[0]
 
-        # print(training_cases)
         self.training_cases = int(training_cases * config.training_frac)
         self.test_cases = int(test_cases * config.test_frac)
         train_index = range(self.training_cases)
@@ -40,7 +34,6 @@ class StructInput(object):
             indices = kf.split(np.arange(0, self.training_cases))
             check = 1
             for train_idx, val_idx in indices:
-                # print(train_idx)
                 if(check == fold_id):
                     self.train_index = train_index = train_idx
                     self.test_index = validation_index = val_idx
@@ -53,7 +46,7 @@ class StructInput(object):
             self.pred_train = pre_train[train_index]
             self.pred_test = pre_test[validation_index]
             self.training_lens = np.array(inf['seq_len_train'],np.int32)[train_index]
-            self.test_lens = np.array(inf['seq_len_test'],np.int32)[validation_index]
+            self.test_lens = np.array(inf['seq_len_train'],np.int32)[validation_index]
         else:
             self.training_data = data_one_hot_training[0:self.training_cases]
             self.test_data = data_one_hot_test[0:self.test_cases]
@@ -70,31 +63,25 @@ class StructInput(object):
         self.seq_length = int(seq_length)
         self.training_cases = self.training_data.shape[0]
         self.test_cases = self.test_data.shape[0]
-        self.difficult_label = difficult_test
-        self.simple_label = simple_test
-
         self.inf = inf
 
 def model_input(input_config, inf, model, validation=False, fold_id=1):
-    if model == 'ThermoNet':
-        return StructInput(input_config, inf, validation, fold_id)
-
-import math
+    return StructInput(input_config, inf, validation, fold_id)
 
 class ThermoNet(object):
+
     def __init__(self, config, input_):
         self._config = config
         eta_model = config['eta_model']
         lam_model = config['lam_model']
-        self.motif_len = config['filter_lengths'][0]
-        self.num_motifs = config['num_filters'][0]
+        self.motif_len = config['filter_lengths'][0]  # Tunable Motif length
+        self.num_motifs = config['num_filters'][0]  # Number of tunable motifs
         self.motif_len2 = config['filter_lengths'][1]
         self.num_motifs2 = config['num_filters'][0]
         self.embedding_size = config['embedding_size']
         self.k_mer = int(config['k_mer'])
-
         self._init_op = tf.global_variables_initializer()
-        self._x = x = tf.placeholder(tf.float32, shape=[None, None, 9 + 6 * 9], name='One_hot_data')
+        self._x = x = tf.placeholder(tf.float32, shape=[None, None, 5 + 6 * 9], name='One_hot_data')
         self._y_true = y_true = tf.placeholder(tf.float32, shape=[None], name='Labels')
         self.seq_lens = tf.placeholder(tf.int32, shape=[None], name='seq_lens')
         self.prob = tf.placeholder(tf.float32, shape=[None, 6], name='prob')
@@ -102,22 +89,21 @@ class ThermoNet(object):
 
         seq_input = tf.cast(tf.reshape(tf.slice(self._x, [0, 0, 0], [-1, -1, self.k_mer]), [-1, self.k_mer]),
                             dtype=tf.int32)
-        struct_input = tf.slice(self._x, [0, 0, 9], [-1, -1, 6 * 9])
+        struct_input = tf.slice(self._x, [0, 0, 5], [-1, -1, 6 * 9])
         self.structure_embedding = tf.get_variable("str_embedding", shape=[sum[self.k_mer], self.embedding_size],
                                                    initializer=tf.contrib.layers.xavier_initializer())
         structure_result = tf.reshape(tf.gather(self.structure_embedding, seq_input),
-                                      [-1, 1, 41, self.k_mer * self.embedding_size])
+                                      [-1, 1, 101, self.k_mer * self.embedding_size])
         structure_result = tf.tile(structure_result, [1, 6, 1, 1])
-        struct_input = tf.transpose(tf.reshape(struct_input, [-1, 41, 6, 9]), perm=[0, 2, 1, 3])
+        struct_input = tf.transpose(tf.reshape(struct_input, [-1, 101, 6, 9]), perm=[0, 2, 1, 3])
         x = tf.reshape(tf.concat([structure_result, struct_input], axis=3),
-                       [-1, 6, 41, 9 + self.k_mer * self.embedding_size])
+                       [-1, 6, 101, 9 + self.k_mer * self.embedding_size])
         h_final_list = []
         self.train_op_list = []
         for i in range(ENSEMBLE_NUMBER):
-            one_slice = tf.reshape(tf.slice(x, [0, i, 0, 0], [-1, 1, -1, -1]), [-1, 41, 9 + self.k_mer * self.embedding_size])
+            one_slice = tf.reshape(tf.slice(x, [0, i, 0, 0], [-1, 1, -1, -1]), [-1, 101, 9 + self.k_mer * self.embedding_size])
             x_image = tf.expand_dims(one_slice, 2)
             self.conv = x_image
-            kernel_step = 0
             for layer in range(5):
                 if layer == 0:
                     kernel_step = self.motif_len
@@ -127,10 +113,11 @@ class ThermoNet(object):
                                              kernel_initializer=tf.contrib.layers.xavier_initializer())
                 self.conv = tf.layers.batch_normalization(self.conv)
                 self.conv = tf.nn.relu(self.conv)
-            self.conv2 = tf.reshape(tf.squeeze(self.conv, axis=[2], name='lstm_input'), [-1, 41 * self.num_motifs])
+            self.conv2 = tf.reshape(tf.squeeze(self.conv, axis=[2], name='lstm_input'), [-1, 101 * self.num_motifs])
             result = tf.layers.dense(self.conv2, 1, kernel_initializer=tf.contrib.layers.xavier_initializer())
 
-            self._cost = cost = tf.reduce_mean(tf.losses.huber_loss(y_true, tf.squeeze(result, axis=1)))
+            self._cost = cost = tf.reduce_mean(
+                    tf.nn.sigmoid_cross_entropy_with_logits(labels=y_true, logits=tf.squeeze(result, axis=1)))
             norm_w = tf.reduce_sum(tf.square(self.structure_embedding))
             self.train_op_list.append(tf.train.AdamOptimizer(learning_rate=eta_model * self.learning_rate).minimize(cost + norm_w * lam_model))
 
@@ -139,7 +126,8 @@ class ThermoNet(object):
 
 
         h_final = tf.reduce_sum(tf.concat(h_final_list, axis = 1), axis=1)
-        self._cost = cost = tf.reduce_mean(tf.losses.huber_loss(y_true, h_final))
+        self._cost = cost = tf.reduce_mean(
+                tf.nn.sigmoid_cross_entropy_with_logits(labels=y_true, logits=h_final))
         norm_w = tf.reduce_sum(tf.square(self.structure_embedding))
         optimizer = tf.train.AdamOptimizer(learning_rate=eta_model * self.learning_rate)
         self._train_op = optimizer.minimize(cost + norm_w * lam_model)
@@ -172,13 +160,194 @@ class ThermoNet(object):
     def y_true(self):
         return self._y_true
 
+class DLPRB(object):
+    def __init__(self, config, input_):
+        self._config = config
+        eta_model = config['eta_model']
+        lam_model = config['lam_model']
+        self.motif_len = config['filter_lengths'][0]  # Tunable Motif length
+        self.num_motifs = config['num_filters'][0]  # Number of tunable motifs
+        self.motif_len2 = config['filter_lengths'][1]
+        self.num_motifs2 = config['num_filters'][0]
+        self.embedding_size = config['embedding_size']
+        self.k_mer = int(config['k_mer'])
+        self._init_op = tf.global_variables_initializer()
+        self._x = x = tf.placeholder(tf.float32, shape=[None, None, 5 + 6 * 9], name='One_hot_data')
+        self._y_true = y_true = tf.placeholder(tf.float32, shape=[None], name='Labels')
+        self.seq_lens = tf.placeholder(tf.int32, shape=[None], name='seq_lens')
+        self.prob = tf.placeholder(tf.float32, shape=[None, 6], name='prob')
+        self.learning_rate = tf.placeholder(tf.float32, name='learning_rate')
+
+        seq_input = tf.cast(tf.reshape(tf.slice(self._x, [0, 0, 0], [-1, -1, self.k_mer]), [-1, self.k_mer]),
+                            dtype=tf.int32)
+        struct_input = tf.slice(self._x, [0, 0, 5], [-1, -1, 6 * 9])
+        self.structure_embedding = tf.get_variable("str_embedding", shape=[sum[self.k_mer], self.embedding_size],
+                                                   initializer=tf.contrib.layers.xavier_initializer())
+        structure_result = tf.reshape(tf.gather(self.structure_embedding, seq_input),
+                                      [-1, 1, 101, self.k_mer * self.embedding_size])
+        structure_result = tf.tile(structure_result, [1, 6, 1, 1])
+        struct_input = tf.transpose(tf.reshape(struct_input, [-1, 101, 6, 9]), perm=[0, 2, 1, 3])
+        x = tf.reshape(tf.concat([structure_result, struct_input], axis=3),
+                       [-1, 6, 101, 9 + self.k_mer * self.embedding_size])
+        self.train_op_list = []
+        sum_input = None
+        for i in range(ENSEMBLE_NUMBER):
+            one_slice = tf.reshape(tf.slice(x, [0, i, 0, 0], [-1, 1, -1, -1]), [-1, 101, 9 + self.k_mer * self.embedding_size])
+            if sum_input == None:
+                sum_input = one_slice * tf.expand_dims(tf.slice(self.prob, [0, i], [-1, 1]), 2)
+            else:
+                sum_input = sum_input + one_slice *  tf.expand_dims(tf.slice(self.prob, [0, i], [-1, 1]), 2)
+
+        x_image = tf.expand_dims(sum_input, 2)
+        self.conv1 = x_image
+        self.conv1 = tf.layers.conv2d(self.conv1, self.num_motifs, (11, 1), padding='same',
+                                      kernel_initializer=tf.contrib.layers.xavier_initializer())
+        self.conv1 = tf.layers.batch_normalization(self.conv1)
+        self.conv1 = tf.nn.relu(self.conv1)
+        self.conv1 = tf.reshape(tf.squeeze(self.conv1, axis=[2]), [-1, 101 * self.num_motifs])
+
+        x_image = tf.expand_dims(sum_input, 2)
+        self.conv2 = x_image
+        self.conv2 = tf.layers.conv2d(self.conv2, self.num_motifs, (5, 1), padding='same',
+                                      kernel_initializer=tf.contrib.layers.xavier_initializer())
+        self.conv2 = tf.layers.batch_normalization(self.conv2)
+        self.conv2 = tf.nn.relu(self.conv2)
+        self.conv2 = tf.reshape(tf.squeeze(self.conv2, axis=[2]), [-1, 101 * self.num_motifs])
+
+        hidden_layer = tf.layers.dense(tf.concat([self.conv1, self.conv2], axis = 1), 128, kernel_initializer=tf.contrib.layers.xavier_initializer())
+        hidden_layer = tf.nn.relu(hidden_layer)
+        result = tf.squeeze(tf.layers.dense(hidden_layer, 1, kernel_initializer=tf.contrib.layers.xavier_initializer()))
+
+        self._cost = cost = tf.reduce_mean(
+                tf.nn.sigmoid_cross_entropy_with_logits(labels=y_true, logits=result))
+        norm_w = tf.reduce_sum(tf.square(self.structure_embedding))
+        optimizer = tf.train.AdamOptimizer(learning_rate=eta_model * self.learning_rate)
+        self._train_op = optimizer.minimize(cost + norm_w * lam_model)
+        self._predict_op = result
+
+    def initialize(self, session):
+        session.run(self._init_op)
+
+    @property
+    def config(self):
+        return self._config
+
+    @property
+    def cost(self):
+        return self._cost
+
+    @property
+    def train_op(self):
+        return self._train_op
+
+    @property
+    def predict_op(self):
+        return self._predict_op
+
+    @property
+    def x(self):
+        return self._x
+
+    @property
+    def y_true(self):
+        return self._y_true
+
+class CnnStructModel_deepbind(object):
+    def __init__(self, config, input_):
+        self._config = config
+        eta_model = config['eta_model']
+        lam_model = config['lam_model']
+        self.motif_len = config['filter_lengths'][0]
+        self.num_motifs = config['num_filters'][0]
+        self.motif_len2 = config['filter_lengths'][1]
+        self.num_motifs2 = config['num_filters'][0]
+        self.embedding_size = config['embedding_size']
+        self.k_mer = int(config['k_mer'])
+        self._init_op = tf.global_variables_initializer()
+        self._x = x = tf.placeholder(tf.float32, shape=[None, None, 5 + 6 * 9], name='One_hot_data')
+        self._y_true = y_true = tf.placeholder(tf.float32, shape=[None], name='Labels')
+        self.seq_lens = tf.placeholder(tf.int32, shape=[None], name='seq_lens')
+        self.prob = tf.placeholder(tf.float32, shape=[None, 6], name='prob')
+        self.learning_rate = tf.placeholder(tf.float32, name='learning_rate')
+
+        seq_input = tf.cast(tf.reshape(tf.slice(self._x, [0, 0, 0], [-1, -1, self.k_mer]), [-1, self.k_mer]),
+                            dtype=tf.int32)
+        struct_input = tf.slice(self._x, [0, 0, 5], [-1, -1, 6 * 9])
+        self.structure_embedding = tf.get_variable("str_embedding", shape=[sum[self.k_mer], self.embedding_size],
+                                                   initializer=tf.contrib.layers.xavier_initializer())
+        structure_result = tf.reshape(tf.gather(self.structure_embedding, seq_input),
+                                      [-1, 101, self.k_mer * self.embedding_size])
+
+        x_image = tf.expand_dims(structure_result, 2)
+        self.conv = x_image
+        self.conv = tf.layers.conv2d(self.conv, self.num_motifs, (11, 1), padding='same',
+                                      kernel_initializer=tf.contrib.layers.xavier_initializer())
+        self.conv = tf.layers.batch_normalization(self.conv)
+        self.conv = tf.nn.relu(self.conv)
+        self.conv = tf.reshape(tf.squeeze(self.conv, axis=[2]), [-1, 101 * self.num_motifs])
+
+
+        hidden_layer = tf.layers.dense(self.conv, 1, kernel_initializer=tf.contrib.layers.xavier_initializer())
+        result = tf.squeeze(hidden_layer)
+
+        self._cost = cost = tf.reduce_mean(
+                tf.nn.sigmoid_cross_entropy_with_logits(labels=y_true, logits=result))
+        norm_w = tf.reduce_sum(tf.square(self.structure_embedding))
+        optimizer = tf.train.AdamOptimizer(learning_rate=eta_model * self.learning_rate)
+        self._train_op = optimizer.minimize(cost + norm_w * lam_model)
+        self._predict_op = result
+
+    def initialize(self, session):
+        session.run(self._init_op)
+
+    @property
+    def config(self):
+        return self._config
+
+    @property
+    def cost(self):
+        return self._cost
+
+    @property
+    def train_op(self):
+        return self._train_op
+
+    @property
+    def predict_op(self):
+        return self._predict_op
+
+    @property
+    def x(self):
+        return self._x
+
+    @property
+    def y_true(self):
+        return self._y_true
+
+
 
 def model(config, input, model_type):
     if model_type == 'ThermoNet':
         return ThermoNet(config, input)
+    elif model_type == 'DLPRB':
+        return DLPRB(config, input)
+    elif model_type == 'CNN_deepbind':
+        return CnnStructModel_deepbind(config, input)
+
+def cross_entropy(targets, predictions, epsilon=1e-12):
+    """
+    Computes cross entropy between targets (encoded as one-hot vectors)
+    and predictions.
+    Input: predictions (N, k) ndarray
+           targets (N, k) ndarray
+    Returns: scalar
+    """
+    predictions = np.clip(predictions, epsilon, 1. - epsilon)
+    ce = - np.mean(np.log(predictions) * targets)
+    return ce
 
 def run_epoch_parallel(session, models, input_data, config, epoch, train=False, verbose=False, testing=False,
-                       scores=False, validation = False):
+                       scores=False, validation = False, predict = False):
     input = input_data
     if isinstance(input_data,list):
         Nbatch_train = int(ceil(input_data[0].training_cases * 1.0 / config['minib']))
@@ -196,12 +365,16 @@ def run_epoch_parallel(session, models, input_data, config, epoch, train=False, 
     minib = config['minib']
     num_models = len(models)
     cost_temp = np.zeros([num_models])
-    pearson_train = np.zeros([num_models, 2])
+    pearson_train = np.zeros([num_models])
 
     learn_rate = 1.
     if epoch >= 5:
-        learn_rate *= 0.1
+         learn_rate *= 0.1
 
+    if epoch >= 20:
+         learn_rate *= 0.1
+
+    import random
     for step in range(0, Nbatch_train):
         fetches = {}
         feed_dict = {}
@@ -238,9 +411,9 @@ def run_epoch_parallel(session, models, input_data, config, epoch, train=False, 
                 fetches["cost"+str(i)] = model.cost
                 fetches["predictions" + str(i)] = model.predict_op
         if train:
-            for t in range(ENSEMBLE_NUMBER):
-                fetches["eval_op"] = model.train_op_list[t]
-                vals = session.run(fetches, feed_dict)
+            for i, model in enumerate(models):
+                fetches["eval_op" + str(i)] = model.train_op
+            vals = session.run(fetches, feed_dict)
         else:
             vals = session.run(fetches, feed_dict)
         for j in range(num_models):
@@ -249,18 +422,15 @@ def run_epoch_parallel(session, models, input_data, config, epoch, train=False, 
     cost_train = cost_temp / Nbatch_train
     for j in range(num_models):
         if isinstance(input_data, list):
-            pearson_train[j, :] = stats.pearsonr(input_data[j].training_labels, training_scores[j, :])
+            pearson_train[j] = metrics.roc_auc_score(input_data[j].training_labels.astype(np.int32), training_scores[j, :])
         else:
-            pearson_train[j, :] = stats.pearsonr(input_data.training_labels, training_scores[j, :])
+            pearson_train[j] = metrics.roc_auc_score(input_data.training_labels.astype(np.int32), training_scores[j, :])
     cost_temp = np.zeros([num_models])
     if testing or scores:
-        pearson_test = np.zeros([num_models, 2])
-        pearson_easy = np.zeros([num_models, 2])
-        pearson_difficult = np.zeros([num_models, 2])
+        pearson_test = np.zeros([num_models])
         for step in range(Nbatch_test):
             feed_dict = {}
             fetches = {}
-
             if isinstance(input_data, list):
                 for i, (model, input) in enumerate(zip(models, input_data)):
                     k_structure = input.test_index[
@@ -307,42 +477,44 @@ def run_epoch_parallel(session, models, input_data, config, epoch, train=False, 
                 test_scores[j, (minib * step): (minib * (step + 1))] = vals['predictions' + str(j)]
         cost_test = cost_temp / Nbatch_test
         if isinstance(input_data,list):
-            pearson_ensemble = stats.pearsonr(input_data[0].test_labels, np.mean(test_scores, axis=0))[0]
-            cost_ensemble = np.mean(np.square(input_data[0].test_labels - np.mean(test_scores, axis=0)))
+            pearson_ensemble = metrics.roc_auc_score(input_data[0].test_labels.astype(np.int32), np.mean(test_scores, axis=0))
+            cost_ensemble = cross_entropy(input_data[0].test_labels, np.mean(test_scores, axis=0))
         else:
-            pearson_ensemble = stats.pearsonr(input_data.test_labels, np.mean(test_scores, axis=0))[0]
-            cost_ensemble = np.mean(np.square(input_data.test_labels-np.mean(test_scores, axis=0)))
+            pearson_ensemble = metrics.roc_auc_score(input_data.test_labels.astype(np.int32), np.mean(test_scores, axis=0))
+            cost_ensemble = cross_entropy(input_data.test_labels, np.mean(test_scores, axis=0))
         for j in range(num_models):
             if isinstance(input_data, list):
-                pearson_test[j, :] = stats.pearsonr(input_data[j].test_labels, test_scores[j, :])
+                pearson_test[j] = metrics.roc_auc_score(input_data[j].test_labels.astype(np.int32), test_scores[j, :])
             else:
-                pearson_test[j, :] = stats.pearsonr(input_data.test_labels, test_scores[j, :])
+                pearson_test[j] = metrics.roc_auc_score(input_data.test_labels.astype(np.int32), test_scores[j, :])
+
         if verbose:
             best_model = np.argmin(cost_train)
             print(
-                "Epoch:%04d, minib:%d,Train cost(min)=%0.4f, Train pearson=%0.4f, Test cost(min)=%0.4f, Test Pearson(max)=%0.4f, Difficult_test_Pearson(max)=%0.4f, Simple_test_Pearson(max)=%0.4f Ensemble Pearson=%0.4f Ensemble Cost=%0.4f" %
-                (epoch + 1, minib, cost_train[best_model], pearson_train[best_model][0], cost_test[best_model],
-                 pearson_test[best_model][0], pearson_difficult[best_model][0], pearson_easy[best_model][0],
+                "Epoch:%04d, minib:%d,Train cost(min)=%0.4f, Train pearson=%0.4f, Test cost(min)=%0.4f, Test Pearson(max)=%0.4f, Ensemble Pearson=%0.4f Ensemble Cost=%0.4f" %
+                (epoch + 1, minib, cost_train[best_model], pearson_train[best_model], cost_test[best_model],
+                 pearson_test[best_model],
                  pearson_ensemble, cost_ensemble))
-            print(["%.4f" % p for p in pearson_test[:, 0]])
+            print(["%.4f" % p for p in pearson_test])
+        if predict == True:
+            best_model = np.argmin(cost_train)
+            return test_scores[best_model, :]
         if scores:
             return (
-            cost_train, cost_test, pearson_train, pearson_test, pearson_easy, pearson_difficult, training_scores,
+            cost_train, cost_test, pearson_train, pearson_test, training_scores,
             test_scores)
         return (
-        cost_train, cost_test, pearson_test[:, 0], pearson_easy[:, 0], pearson_difficult[:, 0], pearson_ensemble,
+        cost_train, cost_test, pearson_test, pearson_ensemble,
         cost_ensemble)
     return cost_train
 
-
-def train_model_parallel(session, train_config, models, input_data,epochs, early_stop = False, savedir=None,saver=None, validation = False):
+def train_model_parallel(session, train_config, models, input_data,epochs, early_stop = False, savedir=None,saver=None, validation = False,outputdir=None):
+    """Trains a list of models in parallel. Expects a list of inputs of equal length as models. Config file is u """
     num_models = len(models)
     cost_train = np.zeros([epochs, num_models])
     cost_test = np.zeros([epochs, num_models])
     pearson_test = np.zeros([epochs, num_models])
-    pearson_easy = np.zeros([epochs, num_models])
-    pearson_difficult = np.zeros([epochs, num_models])
-    pearson_ensemble = np.zeros([epochs])
+    pearson_ensemble = np.zeros([epochs, num_models])
     cost_ensemble = np.zeros([epochs])
     pearson_max = -np.inf
     max_minib = train_config['minib']
@@ -357,7 +529,7 @@ def train_model_parallel(session, train_config, models, input_data,epochs, early
         train_config['minib'] = batch_sizes[i]
         _ = run_epoch_parallel(session, models, input_data, train_config, i, train=True)
         train_config['minib'] = max_minib
-        (cost_train[i], cost_test[i], pearson_test[i], pearson_easy[i], pearson_difficult[i], pearson_ensemble[i], cost_ensemble[i]) = \
+        (cost_train[i], cost_test[i], pearson_test[i], pearson_ensemble[i], cost_ensemble[i]) = \
         run_epoch_parallel(session, models, input_data, train_config, i, train=False,
                            verbose=True, testing = True, validation = validation)
         if early_stop and not(i%5):
@@ -365,7 +537,7 @@ def train_model_parallel(session, train_config, models, input_data,epochs, early
                 best_epoch = i
                 saver.save(session, savedir)
                 print("[*] Saving early stop checkpoint")
-    i = epochs - 1
+
     if saver and(pearson_ensemble[i] > pearson_max):
         best_epoch = i
         saver.save(session, savedir)
@@ -376,17 +548,13 @@ def train_model_parallel(session, train_config, models, input_data,epochs, early
     if early_stop :
         pearson_ensemble = pearson_ensemble[best_epoch]
         cost_ensemble = cost_ensemble[best_epoch]
-        pearson_easy = pearson_easy[best_epoch]
-        pearson_difficult = pearson_difficult[best_epoch]
     else:
         pearson_ensemble = pearson_ensemble[-1]
         cost_ensemble = cost_ensemble[-1]
-        pearson_easy = pearson_easy[-1]
-        pearson_difficult = pearson_difficult[-1]
         if saver:
             saver.save(session, savedir)
             print("[*] Saving checkpoint")
-    return (cost_test,pearson_test, pearson_easy, pearson_difficult, cost_ensemble, pearson_ensemble)
+    return (cost_test,pearson_test, cost_ensemble, pearson_ensemble)
 
 
 def compute_gradient(session, model, input_data, config):
@@ -471,8 +639,8 @@ def score_model_parallel(session, config, models, input_data):
         for j in range(num_models):
             test_scores[j, (minib * step): (minib * (step + 1))] = vals['predictions' + str(j)]
     for j in range(num_models):
-        pearson_test = stats.pearsonr(input_data.test_labels, test_scores[j, :])
-        pearson_training = stats.pearsonr(input_data.training_labels, training_scores[j, :])
+        pearson_test = metrics.roc_auc_score(input_data.test_labels, test_scores[j, :])
+        pearson_training = metrics.roc_auc_score(input_data.training_labels, training_scores[j, :])
     return (training_scores, test_scores, pearson_training, pearson_test)
 
 def save_calibration(train_config, best_config):
@@ -497,7 +665,7 @@ def save_calibration(train_config, best_config):
         print("[*] Retaining existing calibration for %s %s" % (protein, model_type))
 
 
-def save_result(train_config,new_cost, new_pearson, ensemble_size, model_dir, new_easy_pearson, new_difficult_pearson):
+def save_result(train_config,new_cost, new_pearson, ensemble_size, model_dir):
     protein = train_config['protein']
     model_type = train_config['model_type']
     save_dir = train_config['result_dir']
@@ -518,16 +686,29 @@ def save_result(train_config,new_cost, new_pearson, ensemble_size, model_dir, ne
                  pearson=new_pearson
                  )
         result_dict = {'cost': float(new_cost), 'pearson': float(new_pearson), 'ensemble_size': int(ensemble_size),
-                       'model_dir': str(model_dir), 'pearson_simple': float(new_easy_pearson), 'pearson_difficult': float(new_difficult_pearson)}
+                       'model_dir': str(model_dir)}
         yaml.dump(result_dict, open(os.path.join(save_dir, protein + '_' + model_type + '.yml'),'w'))
 
 def load_calibration(train_config):
-    file_name = os.path.join(train_config['hp_dir'], train_config['protein']+'_'+train_config['model_type']+'.npz')
+
+    name = 0
+    protein_name = train_config['protein']
+    id = 0
+    if 'rck' in protein_name:
+        id = int(protein_name.split('_')[1])
+        f = open('../data/rnac/invivo.txt', 'r')
+        line = None
+        for i in range(id + 1):
+            line = f.readline()
+        protein_name = line.split(",")[0]
+        invivo_name = line.split(',')[2]
+
+    file_name = os.path.join(train_config['hp_dir'], protein_name +'_'+train_config['model_type']+'.npz')
     print(os.path.isfile(file_name))
     if not os.path.isfile(file_name):
         # print("[!] Model is not pre-calibrated!")
         return False
-    print("[*] Loading existing best calibration for %s %s" % (train_config['protein'], train_config['model_type']))
+    print("[*] Loading existing best calibration for %s %s" % (protein_name, train_config['model_type']))
     inf = np.load(file_name)
     loaded_config = {}
     loaded_config.update(inf)
@@ -550,35 +731,37 @@ class input_config(object):
             self.test_frac = 1
 
 
+
 def load_data_rnac2013(protein_name):
     # type: (object, object) -> object
 
+    id = int(protein_name.split("_")[1])
 
-    infile_seq_tmp = open('../data/rnac/sequences.tsv')
-    infile_target_tmp = open('../data/rnac/new_targets.tsv')
+    infile_seq_tmp = open('../../../iDeepS/datasets/train_and_test/' + str(id) + '.pure.seq')
+    infile_target_tmp = open('../../../iDeepS/datasets/train_and_test/' + str(id) + '.label')
     seq_train = []
     seq_test = []
     length = []
     target_train = []
     target_test = []
-    exp_ids_train = []
-    exp_ids_test = []
 
-    average_struct = np.load('../data/rnac/new_average.txt.npy').reshape([-1, 9, 41])
+    average_struct = np.load('../../../iDeepS/datasets/train_and_test/top100/' + str(id) + '_combine.map.top100.npy').reshape([-1, 9, 101])
     data_flag = np.zeros([average_struct.shape[0], 1])
     import scipy.sparse
-    t = scipy.sparse.load_npz("../data/rnac/top_5_contact_map.txt.npz")
-    print("pass")
-
-    random_list = np.random.permutation(t.shape[0])
+    t = scipy.sparse.load_npz("../../../iDeepS/datasets/train_and_test/top5/" + str(id) + "_combine.map.top5.npz")
+    t = t[:40000, :]
+    random_list = np.append(np.random.permutation(t.shape[0] // 2), np.arange(t.shape[0] // 2, t.shape[0]))
     t = t[random_list, :]
     data_flag = data_flag[random_list, :]
     average_struct = average_struct[random_list, :]
     sequence_input = np.stack(
-        [np.load("../data/rnac/embedding_right/embedding" + str(i) + ".txt.npy") for i in range(1, 10)], axis=2)
+        [np.load("../../../iDeepS/datasets/train_and_test/n_gram/" + str(id) + "." + str(i) + "_mer.npy") for i in range(1, 6)], axis=2)
+
     sequence_input = sequence_input[random_list, :, :]
-    predict_input = np.load("../data/rnac/pred_list_5.npy")
+    predict_input = np.load("../../../iDeepS/datasets/train_and_test/top5/" + str(id) + "_combine.top5.prob.npy")
     predict_input = predict_input[random_list, :]
+
+    print(str(average_struct.shape[0]) + " " + str(t.shape[0]))
 
     seq_list = []
     target_list = []
@@ -588,64 +771,53 @@ def load_data_rnac2013(protein_name):
         seq_list.append(line_seq)
         target_list.append(line_target)
 
+    print(len(seq_list))
 
-    infile_seq_random = open('../data/rnac/sequences_random' + protein_name + '.tsv', 'w')
-    infile_target_random = open('../data/rnac/targets_random' + protein_name + '.tsv', 'w')
-
-
+    infile_seq_random = open('../data/rnac/sequences_random_' + str(id) + '.tsv', 'w')
+    infile_target_random = open('../data/rnac/targets_random_' + str(id) + '.tsv', 'w')
+    num_instance = len(seq_list)
     for i in range(len(seq_list)):
-        if i == 0:
-            infile_seq_random.write(seq_list[i])
-            infile_target_random.write(target_list[i])
-        else:
-            infile_seq_random.write(seq_list[random_list[i - 1] + 1])
-            infile_target_random.write(target_list[random_list[i - 1] + 1])
+        infile_seq_random.write(seq_list[random_list[i]])
+        infile_target_random.write(target_list[random_list[i]])
 
     infile_seq_random.close()
     infile_target_random.close()
 
-    infile_seq = open('../data/rnac/sequences_random' + protein_name + '.tsv')
-    infile_target = open('../data/rnac/targets_random' + protein_name + '.tsv')
+    infile_seq = open('../data/rnac/sequences_random_' + str(id) + '.tsv', 'r')
+    infile_target = open('../data/rnac/targets_random_' + str(id) + '.tsv', 'r')
 
     structures_A = []
     structures_B = []
     seq_len_A = []
     seq_len_B = []
-    seq_len_train = 41
+    seq_len_train = 101
     num_struct_classes = 9
     belong = {}
     seq_len_train = 0
     seq_len_test = 0
 
-    target_names = infile_target.readline().split()
-    target_col = target_names.index(protein_name)
-
-    infile_seq.readline()
     dic_ban = {}
     test_difficult = []
     test_simple = []
 
     for index, line_seq in enumerate(infile_seq):
-        seq = line_seq.split('\t')[2].strip()
+        seq = line_seq.strip()
         line_target = infile_target.readline()
-        target = [line_target.split('\t')[target_col]]
-        fold = line_seq.split('\t')[0].strip()
+        target = [line_target.strip()]
         target_np = np.array(target, dtype=float)
         length.append(len(seq))
         if np.any(np.isnan(target_np)):
             dic_ban[index] = 1
             continue
-        if fold == 'A':
+        if index < num_instance // 2:
             seq_train.append(seq)
             target_train.append(target)
-            exp_ids_train.append(line_seq.split('\t')[1].strip())
             seq_len_train = max(seq_len_train, len(seq))
             seq_len_A.append(len(seq))
             belong[index] = 1
         else:
             seq_test.append(seq)
             target_test.append(target)
-            exp_ids_test.append(line_seq.split('\t')[1].strip())
             seq_len_test = max(seq_len_test, len(seq))
             seq_len_B.append(len(seq))
             belong[index] = 2
@@ -656,13 +828,9 @@ def load_data_rnac2013(protein_name):
 
     seq_len_A = np.array(seq_len_A)
     seq_len_B = np.array(seq_len_B)
-    iter_train = 0
     seq_length = max(seq_len_test, seq_len_train)
-    iter_test = 0
     line_id = -1
-    times = 0
     save_target = "../data/rnac/npz_archives_update/" + protein_name  + ".h5"
-    true_length = 0
     exist_file_A = exist_file_B = False
     block_num_A = block_num_B = 0
     pred_A = []
@@ -739,8 +907,8 @@ def load_data_rnac2013(protein_name):
     h5f = h5py.File(save_target, 'a')
     structures_train_pointer = h5f['structures_train']
     structures_test_pointer = h5f['structures_test']
-    structures_train_pointer.resize([length_A, num_struct_classes * structure_num, 41])
-    structures_test_pointer.resize([length_B, num_struct_classes * structure_num, 41])
+    structures_train_pointer.resize([length_A, num_struct_classes * structure_num, 101])
+    structures_test_pointer.resize([length_B, num_struct_classes * structure_num, 101])
     structures_train_pointer[length_A // 10000 * 10000:length_A] = structures_train
     structures_test_pointer[length_B // 10000 * 10000:length_B] = structures_test
 
@@ -769,6 +937,9 @@ def load_data_rnac2013(protein_name):
     labels_training[train_ind] = train_clamp
     labels_test[test_ind] = test_clamp
 
+
+    ##############
+
     h5f = h5py.File(save_target, 'a')
 
     h5f.create_dataset('data_one_hot_training', data=data_one_hot_training)
@@ -785,20 +956,20 @@ def load_data_rnac2013(protein_name):
     h5f.create_dataset('difficult_test', data=np.array(test_difficult, dtype=np.int32))
     h5f.create_dataset('simple_test', data=np.array(test_simple, dtype=np.int32))
 
-
 def load_data(protein_name):
-    if 'RNCMPT' in protein_name:
+    if 'RNCMPT' in protein_name or 'invivo' in protein_name:
         if not (os.path.isfile('../data/rnac/npz_archives_update/' + str(protein_name) + '.h5')):
             print("[!] Processing input for " + protein_name)
             load_data_rnac2013(protein_name)
         return h5py.File('../data/rnac/npz_archives_update/' + str(protein_name) + '.h5', 'r')
+
 
 def generate_configs_CNN(num_calibrations, k_mer = 5):
     configs = []
     for eta in [0.001, 0.0001, 0.00001]:
         for lam in [0.001, 0.0001, 0.00001]:
             for embedding_size in [10, 20, 30]:
-                for filter_length in [7, 12, 16]:
+                for filter_length in [16, 64]:
                     for k_mer in [2, 3, 4, 5]:
                         for num_filter in [16, 64]:
                             minib = 100
@@ -822,10 +993,15 @@ def generate_configs_CNN(num_calibrations, k_mer = 5):
                                            'init_scale': init_scale,
                                            "k_mer": k_mer,
                                            "embedding_size": embedding_size}
-
+    
                             configs.append(temp_config)
     return configs
 
+
 def generate_configs(num_calibrations, model_type, k_mer = 5):
     if model_type=='ThermoNet':
+        return generate_configs_CNN(num_calibrations, k_mer)
+    if model_type=='DLPRB':
+        return generate_configs_CNN(num_calibrations, k_mer)
+    if model_type=='CNN_deepbind':
         return generate_configs_CNN(num_calibrations, k_mer)
