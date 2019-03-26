@@ -1,0 +1,17 @@
+num_final_runs: 1
+model_type: CNN_yaron
+train_epochs: 20
+hp_epochs: 20
+minib: 100
+batch_size_boosting: False
+batch_size_steps: 0
+cv_folds: 2
+hp_dir: '../log/hyperparameter_20190128_night'
+result_dir: '../log/result_sample'
+model_dir: '../log/model_sample'
+output_dir: '../log/output'
+num_calibrations: 1
+k_mer: 3
+recalibrate: False
+summary_only: False
+Max_per_round: 30
