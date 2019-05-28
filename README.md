@@ -1,22 +1,22 @@
 # ThermoNet
-This is a TensorFlow implementation accompanying our paper. This codebase is based on Shreshthgandhi's Tensorflow implementation of the cdeepbind model. The framework of model training and testing have beed adopted with minor changes. Other code files have been modified and re-structured with changes specific to our model. And the folder, /scripts/RNAsubopt is a copy of RNAsubopt from the ViennaRNA  project.
+This is a TensorFlow implementation accompanying our paper. This codebase is based on Shreshthgandhi's Tensorflow implementation of the cdeepbind model. The framework of model training and testing have beed adopted with minor changes. Other code files have been modified and re-structured with changes specific to our model. And the folder, `scripts/RNAsubopt` is a copy of RNAsubopt from the ViennaRNA  project.
 
 ## Prepare the Training Data
 We used two datasets to evaluate our model.
 The following datsets were used for training our models.
-* [RNAcompete]()
+* [RNAcompete]
 * [CLIP-seq](https://github.com/mstrazar/iONMF)
 You can download the datasets from the corresponding website. 
 After that， you should prepare the data used in the training code according to the steps below
 
-* Clean the dataset format
-Use the `python 0_get_pure_seq_and_label.py` and `python 1_combine_train_test.py`
+1 Clean the dataset format
+Use the `python scripts/0_get_pure_seq_and_label.py` and `python scripts/1_combine_train_test.py`
 
-* Sample 100 possible secondary strucutures
-Use the `2_generate_top100.py`
+2 Sample 100 possible secondary strucutures
+Use the `python scripts/2_generate_top100.py`
 
-* Generate sequence embedding id
-Use the `3_generate_embedding.py`
+3 Generate sequence embedding id
+Use the `python scripts/3_generate_embedding.py`
 
 ## Run the Training Script
 
