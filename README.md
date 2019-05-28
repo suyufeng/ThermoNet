@@ -4,7 +4,7 @@ This is a TensorFlow implementation accompanying our paper. This codebase is bas
 ## Prepare the Training Data
 We used two datasets to evaluate our model.
 The following datsets were used for training our models.
-* [RNAcompete]
+* [RNAcompete](http://tools.genes.toronto.edu/deepbind/nbtcode/)
 * [CLIP-seq](https://github.com/mstrazar/iONMF)
 
 You can download the datasets from the corresponding website. 
