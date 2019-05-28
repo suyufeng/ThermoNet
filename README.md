@@ -6,7 +6,9 @@ We used two datasets to evaluate our model.
 The following datsets were used for training our models.
 * [RNAcompete]
 * [CLIP-seq](https://github.com/mstrazar/iONMF)
+
 You can download the datasets from the corresponding website. 
+
 After that， you should prepare the data used in the training code according to the steps below
 
 1.Clean the dataset format
