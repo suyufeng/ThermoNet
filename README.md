@@ -8,17 +8,17 @@ The following datsets were used for training our models.
 * [CLIP-seq](https://github.com/mstrazar/iONMF)
 
 You can download the datasets from the corresponding website. 
-After that, you should prepare the data used in the training code according to the steps below
+After that, you should prepare the data used in the training code according to the steps below.
 
-1.Clean the dataset format
+1. Clean the dataset format
 
 Use the `python scripts/0_get_pure_seq_and_label.py` and `python scripts/1_combine_train_test.py`
 
-2.Sample 100 possible secondary strucutures
+2. Sample 100 possible secondary strucutures
 
 Use the `python scripts/2_generate_top100.py`
 
-3.Generate sequence embedding id
+3. Generate sequence embedding id
 
 Use the `python scripts/3_generate_embedding.py`
 
