@@ -22,6 +22,7 @@ Use the `python scripts/3_generate_embedding.py`
 ### Extract top 5 secondary structures 
 Use the `python scripts/5_generate_top5.py`
 
+You will get six kinds of data, which are ".pure.seq", ".label", "\_combine.map.top100.npy", "\_combine.map.top5.npz", "n_gram/\_mer.npy" and "\_combine.top5.prob.npy". You need to link the addresses of the six files in the code to the corresponding address.
 
 ## Run the Training Script
 
