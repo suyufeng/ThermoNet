@@ -22,77 +22,10 @@ Use the `python scripts/3_generate_embedding.py`
 ### Extract top 5 secondary structures 
 Use the `python scripts/5_generate_top5.py`
 
-You will get six kinds of data, which are ".pure.seq", ".label", "\_combine.map.top100.npy", "\_combine.map.top5.npz", "n_gram/\_mer.npy" and "\_combine.top5.prob.npy". You need to link the addresses of the six files in the code to the corresponding address.
+You will get six kinds of data, which are ".pure.seq", ".label", "\_combine.map.top100.npy", "\_combine.map.top5.npz", "n_gram/\_mer.npy" and "\_combine.top5.prob.npy". You need to link the addresses of the six files in the code to the corresponding addresses.
 
-## Run the Training Script
+## Run the Main Script
+Use the `python invitro/bin/train_model_update.py` to train the model in *in vitro* dataset and the `python invivo/bin/train_model_update.py` to train the model in *in vivo* dataset. After the code is completed, we will save the best hyperparameter and results. You can change the saving address in `configs/cnn_config.yml`. 
 
-Use the `run.sh` script to train a model. 
-The following variables have to be specified.
+BTW, The ThermoNet implementation is available at `invitro/bin/deepbind_model/utils_update.py`. If you just want to see how to implemente ThermoNet instead of runing the code, you can check the ThermoNet class directly.
 
-```
-* DATA_DIR      # Path to TFRecord files
-* RESULTS_HOME  # Directory to store results
-* CFG           # Name of model configuration 
-* MDL_CFGS      # Path to model configuration files
-* GLOVE_PATH    # Path to GloVe dictionary and embeddings
-```
-
-Example configuration files are provided in the model\_configs folder. During training, model files will be stored under a directory named `$RESULTS_HOME/$CFG`.
-
-### Training using pre-trained word embeddings
-
-The implementation supports using fixed pre-trained GloVe word embeddings.
-The code expects a numpy array file consisting of the GloVe word embeddings named `glove.840B.300d.npy` in the `$GLOVE_PATH` folder.
-
-## Evaluating a Model
-
-### Expanding the Vocabulary
-
-Once the model is trained, the vocabulary used for training can be optionally expanded to a larger vocabulary using the technique proposed by the SkipThought paper. 
-The `voc_exp.sh` script can be used to perform expansion. 
-Since Word2Vec embeddings are used for expansion, you will have to download the Word2Vec model. 
-You will also need the gensim library to run the script.
-
-### Evaluation on downstream tasks
-
-Use the `eval.sh` script for evaluation. The following variables need to be set.
-
-```
-* SKIPTHOUGHTS  # Path to SkipThoughts implementation
-* DATA          # Data directory for downstream tasks
-* TASK          # Name of the task
-* MDLS_PATH     # Path to model files
-* MDL_CFGS      # Path to model configuration files
-* CFG           # Name of model configuration 
-* GLOVE_PATH    # Path to GloVe dictionary and embeddings
-```
-
-Evaluation scripts for the downstream tasks from the authors of the SkipThought model are used. These scripts train a linear layer on top of the sentence embeddings for each task. 
-You will need to clone or download the [skip-thoughts GitHub repository](https://github.com/ryankiros/skip-thoughts) by [ryankiros](https://github.com/ryankiros).
-Set the `DATA` variable to the directory containing data for the downstream tasks. 
-See the above repository for further details regarding downloading and setting up the data.
-
-To evaluate the pre-trained models, set the directory variables appropriately.
-Set `MDLS_PATH` to the directory of downloaded models.
-Set the configuration variable `CFG` to one of 
-* `MC-BC` (Multi-channel BookCorpus model) or 
-* `MC-UMBC` (Multi-channel BookCorpus + UMBC model)
-
-Set the `TASK` variable to the task of interest.
-
-## Reference
-
-If you found our code useful, please cite us [1](https://arxiv.org/pdf/1803.02893.pdf).
-
-```
-@inproceedings{
-logeswaran2018an,
-  title={An efficient framework for learning sentence representations},
-  author={Lajanugen Logeswaran and Honglak Lee},
-  booktitle={International Conference on Learning Representations},
-  year={2018},
-  url={https://openreview.net/forum?id=rJvJXZb0W},
-}
-```
-
-Contact: [llajan@umich.edu](mailto:llajan@umich.edu)
