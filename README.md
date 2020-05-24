@@ -1,9 +1,9 @@
 # ThermoNet
-This is a TensorFlow implementation accompanying our paper. This codebase is based on Shreshthgandhi's Tensorflow implementation of the cdeepbind model. The framework of model training and testing have beed adopted with minor changes. Other code files have been modified and re-structured with changes specific to our model. And the folder, `scripts/RNAsubopt` is a copy of RNAsubopt from the ViennaRNA  project.
+This is a TensorFlow implementation accompanying our paper. This codebase is based on Shreshthgandhi's Tensorflow implementation of the cdeepbind model. The framework of model training and testing have beed adopted with minor changes. Other code files have been modified and re-structured with changes specific to our model. And the folder, `scripts/RNAsubopt`, is a copy of RNAsubopt from the ViennaRNA  project.
 
 ## Prepare the Training Data
 We used two datasets to evaluate our model.
-The following datsets were used for training our models.
+The following datasets were used for training our models.
 * [RNAcompete](http://tools.genes.toronto.edu/deepbind/nbtcode/)
 * [CLIP-seq](https://github.com/mstrazar/iONMF)
 
